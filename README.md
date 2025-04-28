@@ -2,6 +2,8 @@
 
 Only runs on linux for now.
 
+To compile: gcc -o sbsh sbsh.c
+
 Work in progress.
 
 ### Built-ins
