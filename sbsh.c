@@ -26,8 +26,9 @@ int main(int argc, char *argv[]) {
     
     // Initialize err msg, delims, path, buffer (lineptr), buffer size, input file pointer
     const char error_message[30] = "An error has occurred\n";
-    const char *DELIMITER = " ";
-    const char *PATH_DELIM = ":";
+    const char DELIMITER = ' ';
+    const char PATH_DELIM = ':';
+
     char *shell_path = strdup("/bin");
     char *lineptr = NULL;
     size_t size = 0;
@@ -88,7 +89,7 @@ int main(int argc, char *argv[]) {
         // input by spaces as the delimiter
         char *input = lineptr;
         char *token; 
-        while ((token = strsep(&input, DELIMITER)) != NULL && *token != '\0') {
+        while ((token = strsep(&input, &DELIMITER)) != NULL && *token != '\0') {
             // Check if array needs to be resized
             if (count == array_size) {
                 array_size *= 2;
@@ -117,7 +118,7 @@ int main(int argc, char *argv[]) {
             }
             exit(0);
         } else if (count >= 1 && strcmp(args[0], "cd") == 0) {
-            if (count != 2) { // cd only takes one arguemnt for now
+            if (count != 2) { // cd takes only one argument for now
                 write(STDERR_FILENO, error_message, strlen(error_message));
             } else {
                 const char *dir = args[1];
@@ -160,7 +161,7 @@ int main(int argc, char *argv[]) {
         } else {
             // Split path string copy by colons
             path_copy = strdup(shell_path);
-            char *dir = strsep(&path_copy, PATH_DELIM);
+            char *dir = strsep(&path_copy, &PATH_DELIM);
             bool path_found = false;
             while (dir != NULL) {
                 char full_path[PATH_MAX];
@@ -182,7 +183,7 @@ int main(int argc, char *argv[]) {
                         break;
                     }
                 }
-                dir = strsep(&path_copy, PATH_DELIM);
+                dir = strsep(&path_copy, &PATH_DELIM);
             }
             if (!path_found) {
                 write(STDERR_FILENO, error_message, strlen(error_message));
