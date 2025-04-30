@@ -117,7 +117,7 @@ int main(int argc, char *argv[]) {
             }
             exit(0);
         } else if (count >= 1 && strcmp(args[0], "cd") == 0) {
-            if (count != 2) { // cd only takes one or no argument
+            if (count != 2) { // cd only takes one arguemnt for now
                 write(STDERR_FILENO, error_message, strlen(error_message));
             } else {
                 const char *dir = args[1];
