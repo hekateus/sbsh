@@ -16,11 +16,11 @@
 
 
 ssize_t read_line(FILE *file_ptr, char **lineptr, size_t *size) {
-        if (file_ptr == stdin) {
-            printf("sbsh> ");
-        }
-        return getline(lineptr, size, file_ptr);
+    if (file_ptr == stdin) {
+        printf("sbsh> ");
     }
+    return getline(lineptr, size, file_ptr);
+}
 
 int main(int argc, char *argv[]) {
     
