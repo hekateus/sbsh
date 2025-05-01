@@ -117,7 +117,7 @@ int main(int argc, char *argv[]) {
                 fclose(file_ptr);
             }
             exit(0);
-        } else if (count >= 1 && strcmp(args[0], "cd") == 0) {
+        } else if (strcmp(args[0], "cd") == 0) {
             if (count != 2) { // cd takes only one argument for now
                 write(STDERR_FILENO, error_message, strlen(error_message));
             } else {
