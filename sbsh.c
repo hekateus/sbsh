@@ -1,9 +1,10 @@
     // $$$ Basic functionality for input mode done $$$
     // $$$ Batch mode done $$$
+    // $$$ Redirection done $$$
     
-    // TODO: Implement redirection
     // TODO: Implement parallel commands
 
+#include <fcntl.h>
 #include <linux/limits.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -26,9 +27,8 @@ int main(int argc, char *argv[]) {
     
     // Initialize err msg, delims, path, buffer (lineptr), buffer size, input file pointer
     const char error_message[30] = "An error has occurred\n";
-    const char DELIMITER = ' ';
-    const char PATH_DELIM = ':';
-
+    const char *DELIMITER = " ";
+    const char *PATH_DELIM = ":";
     char *shell_path = strdup("/bin");
     char *lineptr = NULL;
     size_t size = 0;
@@ -43,6 +43,7 @@ int main(int argc, char *argv[]) {
     else if (argc == 2) {
         file_ptr = fopen(argv[1], "r");
         if (file_ptr == NULL) {
+            free(shell_path);
             write(STDERR_FILENO, error_message, strlen(error_message));
             exit(1);
         }
@@ -87,26 +88,56 @@ int main(int argc, char *argv[]) {
         }
         // Populate array with tokens derived from separating user-
         // input by spaces as the delimiter
-        char *input = lineptr;
-        char *token; 
-        while ((token = strsep(&input, &DELIMITER)) != NULL && *token != '\0') {
-            // Check if array needs to be resized
-            if (count == array_size) {
-                array_size *= 2;
-                args = realloc(args, array_size * sizeof(char*));
-                if (args == NULL) {
-                    write(STDERR_FILENO, error_message, strlen(error_message));
-                    exit(1);
-                }
+        char *p = lineptr;
+        char *start = NULL;
+        int token_len = 0;
+        while (*p != '\0') {
+            while (*p == ' ') p++;
+            if (*p == '\0') break;
+            start = p;
+            token_len = 0;
+            while (*p != '\0' && *p != ' ' && *p != '>') {
+                p++;
+                token_len++;
             }
-            // Parse user input into separate tokens
-            if (count < array_size) {
-                args[count] = strdup(token);
+            if (token_len > 0) {
+                if (count == array_size) {
+                    array_size *= 2;
+                    args = realloc(args, array_size * sizeof(char*));
+                    if (args == NULL) {
+                        write(STDERR_FILENO, error_message, strlen(error_message));
+                        exit(1);
+                    }
+                }
+                args[count] = strndup(start, token_len);
                 count++;
             }
+            if (*p == '>') {
+                if (count == array_size) {
+                    array_size *= 2;
+                    args = realloc(args, array_size * sizeof(char*));
+                    if (args == NULL) {
+                        write(STDERR_FILENO, error_message, strlen(error_message));
+                        exit(1);
+                    }
+                }
+                args[count] = strdup(">");
+                count++;
+                p++;
+            }
         }
-        // Set indicator for end of args
-        args[count] = NULL;
+        if (count < array_size) {
+            args[count] = NULL;
+        } else {
+            array_size++;
+            args = realloc(args, array_size * sizeof(char*));
+            if (args == NULL) {
+                write(STDERR_FILENO, error_message, strlen(error_message));
+                exit(1);
+            }
+            args[count] = NULL;
+        }
+
         // If user presses enter without typing anything
         if (count == 0) { 
             memory_freed = true;
@@ -159,9 +190,45 @@ int main(int argc, char *argv[]) {
             }
             memory_freed = true;
         } else {
+            int redir_index = -1;
+            int ch_count = 0;
+            for (int i = 0; args[i] != NULL; i++) {
+                if (strcmp(args[i], ">") == 0) {
+                    if (redir_index != -1) {
+                        write(STDERR_FILENO, error_message, strlen(error_message));
+                        exit(0);
+                    }
+                        redir_index = i;
+                }
+                    ch_count++;
+            }
+            if (redir_index != -1 && redir_index == ch_count - 1) {
+                write(STDERR_FILENO, error_message, strlen(error_message));
+                continue;
+            }
+            char *cmd_args[ch_count];
+            char *file = NULL;
+            int i;
+            if (redir_index != -1) {
+                if (args[redir_index + 1] == NULL || args[redir_index + 2] != NULL) {
+                    write(STDERR_FILENO, error_message, strlen(error_message));
+                    continue;
+                }
+                for (i = 0; i < redir_index; i++) {
+                    cmd_args[i] = args[i];
+                }
+                cmd_args[redir_index] = NULL;
+                file = args[redir_index + 1];
+            } else {
+                for (i = 0; args[i] != NULL; i++) {
+                    cmd_args[i] = args[i];
+                }
+                cmd_args[i] = NULL;
+            }
+
             // Split path string copy by colons
             path_copy = strdup(shell_path);
-            char *dir = strsep(&path_copy, &PATH_DELIM);
+            char *dir = strsep(&path_copy, PATH_DELIM);
             bool path_found = false;
             while (dir != NULL) {
                 char full_path[PATH_MAX];
@@ -173,7 +240,17 @@ int main(int argc, char *argv[]) {
                     if (cpid < 0) {
                         write(STDERR_FILENO, error_message, strlen(error_message));
                     } else if (cpid == 0 ) {     // Child process 
-                        if (execv(full_path, args) < 0) {
+                        if (file != NULL) {
+                            int fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                            if (fd < 0) {
+                                write(STDERR_FILENO, error_message, strlen(error_message));
+                                exit(1);
+                            }
+                            dup2(fd, 1);
+                            dup2(fd, 2);
+                            close(fd);
+                        }
+                        if (execv(full_path, cmd_args) < 0) {
                             write(STDERR_FILENO, error_message, strlen(error_message));
                             exit(1);
                         }
@@ -183,7 +260,7 @@ int main(int argc, char *argv[]) {
                         break;
                     }
                 }
-                dir = strsep(&path_copy, &PATH_DELIM);
+                dir = strsep(&path_copy, PATH_DELIM);
             }
             if (!path_found) {
                 write(STDERR_FILENO, error_message, strlen(error_message));
