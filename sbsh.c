@@ -21,7 +21,6 @@ const char *PATH_DELIM = ":";
 char *lineptr = NULL;
 size_t size = 0;
 FILE *file_ptr;
-bool memory_freed = false; // Flag to track early freeing
 char *path_copy = NULL;
 
 // Gets user input
@@ -142,13 +141,11 @@ void cleanup(char **lineptr, char ***args, size_t count, char **path_copy) {
 // Parse command and execute
 bool execute_command(char **args, size_t count, char **shell_path, FILE *file_ptr) {
     if (count == 0) {   // If user presses enter without typing anything
-        memory_freed = true;
         return false;
     }
     if (count == 1 && strcmp(args[0], "exit") == 0) { // Check for builtins commands
         free(*shell_path);
         *shell_path = NULL;
-        memory_freed = true;
         if (file_ptr != stdin) {
             fclose(file_ptr);
             file_ptr = NULL;
@@ -164,7 +161,6 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
                 write(STDERR_FILENO, error_message, strlen(error_message));
             }
         }
-        memory_freed = true;
         return false;
     }
     if (strcmp(args[0], "path") == 0) {   // User wants to change shell path
@@ -197,7 +193,6 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
             *path_ptr = '\0';
             *shell_path = new_path;
         }
-        memory_freed = true;
         return false;
     }
     // Check for redirection
@@ -207,7 +202,6 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
         if (strcmp(args[i], ">") == 0) {
             if (redir_index != -1) {
                 write(STDERR_FILENO, error_message, strlen(error_message));
-                memory_freed = true;
                 return false;
             }
             redir_index = i;
@@ -219,7 +213,6 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
     if (redir_index != -1) {
         if (redir_index == ch_count - 1 || args[redir_index + 1] == NULL || args[redir_index + 2] != NULL) {
             write(STDERR_FILENO, error_message, strlen(error_message));
-            memory_freed = true;
             return false;
         }
         for (int i = 0; i < redir_index; i++) {
@@ -236,7 +229,6 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
 
     if (!*shell_path || **shell_path == '\0') {
         write(STDERR_FILENO, error_message, strlen(error_message));
-        memory_freed = true;
         return false;
     }
 
@@ -244,7 +236,6 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
     path_copy = strdup(*shell_path);
     if (path_copy == NULL) {
         write(STDERR_FILENO, error_message, strlen(error_message));
-        memory_freed = true;
         return false;
     }
     bool path_found = false;
@@ -318,7 +309,6 @@ int main(int argc, char *argv[]) {
     size_t array_size = 0;
     // Main loop
     while (true) {
-        memory_freed = false;
         // Read user input
         ssize_t num_read = read_line(file_ptr, &lineptr, &size);;
         if (num_read == -1) {
