@@ -41,8 +41,13 @@ int resize_args(char ***args, size_t *array_size, size_t count) {
     size_t new_size = *array_size * 2;
     char **new_args = realloc(*args, new_size * sizeof(char*));
     if (new_args == NULL) {
+        for (size_t i = 0; i < count; i++) {
+            free((*args)[i]);
+        }
+        free(*args);
+        *args = NULL;
         write(STDERR_FILENO, error_message, strlen(error_message));
-        exit(1);
+        return -1;
     }
     *args = new_args;
     *array_size = new_size;
@@ -50,7 +55,7 @@ int resize_args(char ***args, size_t *array_size, size_t count) {
 }
 
 // Populate array with tokens derived from separating user-
-// input by spaces as the delimiter
+// input by spaces or redirection indicator (>) as the delimiter
 char **tokenize_input(char *lineptr, size_t *count, size_t *array_size) {
     if (*array_size == 0) {
         *array_size = 5;
@@ -75,7 +80,9 @@ char **tokenize_input(char *lineptr, size_t *count, size_t *array_size) {
         }
         if (token_len > 0) {
             if (*count == *array_size) {
-                resize_args(&args, array_size, *count);
+                if (resize_args(&args, array_size, *count) != 0) {
+                    return NULL;
+                }
             }
             args[*count] = strndup(start, token_len);
             if (args[*count] == NULL) {
@@ -83,13 +90,16 @@ char **tokenize_input(char *lineptr, size_t *count, size_t *array_size) {
                     free(args[i]);
                 }
                 free(args);
+                write(STDERR_FILENO, error_message, strlen(error_message));
                 return NULL;
             }
             (*count)++;
         }
         if (*p == '>') {
             if (*count == *array_size) {
-                resize_args(&args, array_size, *count);
+                if (resize_args(&args, array_size, *count) != 0) {
+                    return NULL;
+                }
             }
             args[*count] = strdup(">");
             if (args[*count] == NULL) {
@@ -97,6 +107,7 @@ char **tokenize_input(char *lineptr, size_t *count, size_t *array_size) {
                     free(args[i]);
                 }
                 free(args);
+                write(STDERR_FILENO, error_message, strlen(error_message));
                 return NULL;
             }
             (*count)++;
@@ -104,7 +115,9 @@ char **tokenize_input(char *lineptr, size_t *count, size_t *array_size) {
         }
     }
     if (*count >= *array_size) {
-        resize_args(&args, array_size, *count);
+        if (resize_args(&args, array_size, *count) != 0) {
+            return NULL;
+        }
     }
     args[*count] = NULL;
     return args;
@@ -127,18 +140,20 @@ void cleanup(char **lineptr, char ***args, size_t count, char **path_copy) {
 }
 
 // Parse command and execute
-void execute_command(char **args, size_t count, char **shell_path, FILE *file_ptr) {
+bool execute_command(char **args, size_t count, char **shell_path, FILE *file_ptr) {
     if (count == 0) {   // If user presses enter without typing anything
         memory_freed = true;
-        return;
+        return false;
     }
     if (count == 1 && strcmp(args[0], "exit") == 0) { // Check for builtins commands
         free(*shell_path);
+        *shell_path = NULL;
         memory_freed = true;
         if (file_ptr != stdin) {
             fclose(file_ptr);
+            file_ptr = NULL;
         }
-        exit(0);
+        return true;
     }
     if (strcmp(args[0], "cd") == 0) {
         if (count != 2) { // cd takes only one argument for now
@@ -150,7 +165,7 @@ void execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
             }
         }
         memory_freed = true;
-        return;
+        return false;
     }
     if (strcmp(args[0], "path") == 0) {   // User wants to change shell path
         free(*shell_path); // free initial path
@@ -183,7 +198,7 @@ void execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
             *shell_path = new_path;
         }
         memory_freed = true;
-        return;
+        return false;
     }
     // Check for redirection
     int redir_index = -1;
@@ -193,7 +208,7 @@ void execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
             if (redir_index != -1) {
                 write(STDERR_FILENO, error_message, strlen(error_message));
                 memory_freed = true;
-                return;
+                return false;
             }
             redir_index = i;
         }
@@ -205,7 +220,7 @@ void execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
         if (redir_index == ch_count - 1 || args[redir_index + 1] == NULL || args[redir_index + 2] != NULL) {
             write(STDERR_FILENO, error_message, strlen(error_message));
             memory_freed = true;
-            return;
+            return false;
         }
         for (int i = 0; i < redir_index; i++) {
             cmd_args[i] = args[i];
@@ -219,15 +234,21 @@ void execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
         cmd_args[ch_count] = NULL;
     }
 
+    if (!*shell_path || **shell_path == '\0') {
+        write(STDERR_FILENO, error_message, strlen(error_message));
+        memory_freed = true;
+        return false;
+    }
+
     // Split path string copy by colons
     path_copy = strdup(*shell_path);
     if (path_copy == NULL) {
         write(STDERR_FILENO, error_message, strlen(error_message));
         memory_freed = true;
-        return;
+        return false;
     }
-    char *dir = strsep(&path_copy, PATH_DELIM);
     bool path_found = false;
+    char *dir = strtok(path_copy, PATH_DELIM);
     while (dir != NULL) {
         char full_path[PATH_MAX];
         snprintf(full_path, sizeof(full_path), "%s/%s", dir, args[0]);
@@ -258,11 +279,14 @@ void execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
                 break;
             }
         }
-        dir = strsep(&path_copy, PATH_DELIM);
+        dir = strtok(path_copy, PATH_DELIM);
     }
+    free(path_copy);
+    path_copy = NULL;
     if (!path_found) {
         write(STDERR_FILENO, error_message, strlen(error_message));
     }
+    return false;
 }
 
 
@@ -315,18 +339,18 @@ int main(int argc, char *argv[]) {
         if (num_read > 0 && lineptr[num_read - 1] == '\n') {
             lineptr[num_read - 1] = '\0';
         }
-        size_t count = 0;
-        size_t array_size = 5;
-        char **args = tokenize_input(lineptr, &count, &array_size);
+        count = 0;
+        array_size = 5;
+        args = tokenize_input(lineptr, &count, &array_size);
         if (args == NULL) {
             cleanup(&lineptr, &args, count, &path_copy);
             continue;
         }
-        execute_command(args, count, &shell_path, file_ptr);
-        // If memory has not been freed by now, free it
-        if (!memory_freed) {
+        if (execute_command(args, count, &shell_path, file_ptr)) {
             cleanup(&lineptr, &args, count, &path_copy);
+            exit(0);
         }
+        cleanup(&lineptr, &args, count, &path_copy);
     }
     return 0;
 }
