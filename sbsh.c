@@ -4,6 +4,7 @@
 
 // TODO: Implement parallel commands
 
+#include <ctype.h>
 #include <fcntl.h>
 #include <linux/limits.h>
 #include <stddef.h>
@@ -69,11 +70,11 @@ char **tokenize_input(char *lineptr, size_t *count, size_t *array_size) {
     int token_len = 0;
     *count = 0;
     while (*p != '\0') {
-        while (*p == ' ') p++;
+        while (isspace(*p)) p++;
         if (*p == '\0') break;
         start = p;
         token_len = 0;
-        while (*p != '\0' && *p != ' ' && *p != '>') {
+        while (*p != '\0' && !isspace(*p) && *p != '>') {
             p++;
             token_len++;
         }
@@ -143,7 +144,11 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
     if (count == 0) {   // If user presses enter without typing anything
         return false;
     }
-    if (count == 1 && strcmp(args[0], "exit") == 0) { // Check for builtins commands
+    if (strcmp(args[0], "exit") == 0) { // Check for builtins commands
+        if (count != 1) {
+            write(STDERR_FILENO, error_message, strlen(error_message));
+            return false;
+        }
         free(*shell_path);
         *shell_path = NULL;
         if (file_ptr != stdin) {
@@ -270,7 +275,7 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
                 break;
             }
         }
-        dir = strtok(path_copy, PATH_DELIM);
+        dir = strtok(NULL, PATH_DELIM);
     }
     free(path_copy);
     path_copy = NULL;
@@ -310,7 +315,7 @@ int main(int argc, char *argv[]) {
     // Main loop
     while (true) {
         // Read user input
-        ssize_t num_read = read_line(file_ptr, &lineptr, &size);;
+        ssize_t num_read = read_line(file_ptr, &lineptr, &size);
         if (num_read == -1) {
             if (feof(file_ptr)) {
                 cleanup(&lineptr, &args, count, &path_copy);
@@ -326,8 +331,10 @@ int main(int argc, char *argv[]) {
         }
         // Check for new line char
         // Strip newlines
-        if (num_read > 0 && lineptr[num_read - 1] == '\n') {
-            lineptr[num_read - 1] = '\0';
+        if (num_read > 0) {
+            while (num_read > 0 && (lineptr[num_read - 1] == '\n' || lineptr[num_read - 1] == '\r')) {
+                lineptr[--num_read] = '\0';
+            }
         }
         count = 0;
         array_size = 5;
