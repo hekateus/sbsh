@@ -1,5 +1,4 @@
 // A simple shell
-
 #include <ctype.h>
 #include <fcntl.h>
 #include <linux/limits.h>
@@ -12,19 +11,15 @@
 #include <stdbool.h>
 #include <sys/wait.h>
 
-// Initialize delims, path, buffer (lineptr), buffer size, input file pointer
 const char error_message[30] = "An error has occurred\n";
-const char *PATH_DELIM = ":";
-char *lineptr = NULL;
-size_t size = 0;
-FILE *file_ptr;
 
+// Struct for storing commands
 typedef struct {
     char **tokens;
     size_t token_count;
 } Command;
 
-// Free memory for main loop (excluding shell_path)
+// Frees memory for main loop (excluding shell_path)
 void cleanup_loop(char **lineptr, Command **commands, size_t num_commands) {
     free(*lineptr);
     *lineptr = NULL;
@@ -40,6 +35,7 @@ void cleanup_loop(char **lineptr, Command **commands, size_t num_commands) {
     }
 }
 
+// Frees all memory
 void cleanup(char **lineptr, Command **commands, size_t num_commands, char **shell_path) {
     cleanup_loop(lineptr, commands, num_commands);
     free(*shell_path);
@@ -76,6 +72,7 @@ int resize_args(char ***args, size_t *array_size, size_t count) {
     return 0;
 }
 
+// Resize array of command structs
 int resize_cmd_arr(Command **cmd, size_t *cmd_array_size, size_t count) {
     if (*cmd_array_size == 0) {
         *cmd_array_size = 4;
@@ -98,6 +95,9 @@ int resize_cmd_arr(Command **cmd, size_t *cmd_array_size, size_t count) {
     return 0;
 }
 
+// Separate input into tokens
+// derived from separating user-
+// input by spaces or redirection indicator (>) as the delimiter
 char **tokenize_command(char *cmd_str, size_t *token_count, size_t *token_array_size) {
     if (*token_array_size == 0) {
         *token_array_size = 5;
@@ -188,8 +188,7 @@ char **tokenize_command(char *cmd_str, size_t *token_count, size_t *token_array_
     return tokens;
 }
 
-// Populate array with tokens derived from separating user-
-// input by spaces or redirection indicator (>) as the delimiter
+// Populate Command struct array with tokens
 Command *tokenize_input(char *lineptr, size_t *num_commands, size_t *cmd_array_size, char **shell_path) {
     if (*cmd_array_size == 0) {
         *cmd_array_size = 4;
@@ -204,10 +203,16 @@ Command *tokenize_input(char *lineptr, size_t *num_commands, size_t *cmd_array_s
     int token_len = 0;
     *num_commands = 0;
     while (*p != '\0') {
-        while (isspace(*p)) p++;
-        if (*p == '\0') break;
+        while (isspace(*p)) {
+            p++;
+        }
+        if (*p == '\0') {
+            break;
+        }
         start = p;
-        while (*p != '\0' && *p != '&') p++;
+        while (*p != '\0' && *p != '&') {
+            p++;
+        }
         if (p > start) {
             char *end = p;
             while (end > start && isspace(*(end - 1))) end--;
@@ -269,6 +274,7 @@ Command *tokenize_input(char *lineptr, size_t *num_commands, size_t *cmd_array_s
 
 // Parse command and execute
 pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_ptr) {
+    const char *PATH_DELIM = ":";
     if (count == 0) {   // If user presses enter without typing anything
         return -1;
     }
@@ -352,6 +358,7 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
             cmd_args[i] = args[i];
         }
         cmd_args[redir_index] = NULL;
+        // file get set here
         file = args[redir_index + 1];
     } else {
         for (int i = 0; i < ch_count; i++) {
@@ -359,12 +366,10 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
         }
         cmd_args[ch_count] = NULL;
     }
-
     if (!*shell_path || **shell_path == '\0') {
         write(STDERR_FILENO, error_message, strlen(error_message));
         return -1;
     }
-
     // Split path string copy by colons
     char *path_copy = NULL;
     path_copy = strdup(*shell_path);
@@ -393,8 +398,9 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
                         write(STDERR_FILENO, error_message, strlen(error_message));
                         exit(1);
                     }
+                    free(shell_path);
+                    // Close stdout (1) and print output to fd (file)
                     dup2(fd, 1);
-                    dup2(fd, 2);
                     close(fd);
                 }
                 if (execv(full_path, cmd_args) < 0) {
@@ -418,8 +424,11 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
     return -1;
 }
 
-
 int main(int argc, char *argv[]) {
+    char *lineptr = NULL;
+    size_t size = 0;
+    FILE *file_ptr;
+
     char *shell_path = strdup("/bin");
     if (shell_path == NULL) {
         write(STDERR_FILENO, error_message, strlen(error_message));
@@ -442,7 +451,6 @@ int main(int argc, char *argv[]) {
     } else {
         file_ptr = stdin;
     }
-
     Command *commands = NULL;
     size_t num_commands = 0;
     size_t cmd_array_size = 0;
