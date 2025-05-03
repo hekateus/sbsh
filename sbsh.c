@@ -1,8 +1,4 @@
-// $$$ Basic functionality for input mode done $$$
-// $$$ Batch mode done $$$
-// $$$ Redirection done $$$
-
-// TODO: Implement parallel commands
+// A simple shell
 
 #include <ctype.h>
 #include <fcntl.h>
@@ -22,7 +18,33 @@ const char *PATH_DELIM = ":";
 char *lineptr = NULL;
 size_t size = 0;
 FILE *file_ptr;
-char *path_copy = NULL;
+
+typedef struct {
+    char **tokens;
+    size_t token_count;
+} Command;
+
+// Free memory for main loop (excluding shell_path)
+void cleanup_loop(char **lineptr, Command **commands, size_t num_commands) {
+    free(*lineptr);
+    *lineptr = NULL;
+    if (*commands != NULL) {
+        for (size_t i = 0; i < num_commands; i++) {
+            for (size_t j = 0; j < (*commands)[i].token_count; j++) {
+                free((*commands)[i].tokens[j]);
+            }
+            free((*commands)[i].tokens);
+        }
+        free(*commands);
+        *commands = NULL;
+    }
+}
+
+void cleanup(char **lineptr, Command **commands, size_t num_commands, char **shell_path) {
+    cleanup_loop(lineptr, commands, num_commands);
+    free(*shell_path);
+    *shell_path = NULL;
+}
 
 // Gets user input
 ssize_t read_line(FILE *file_ptr, char **lineptr, size_t *size) {
@@ -36,7 +58,7 @@ ssize_t read_line(FILE *file_ptr, char **lineptr, size_t *size) {
 // Dynamically resizes array
 int resize_args(char ***args, size_t *array_size, size_t count) {
     if (*array_size == 0) {
-        *array_size = 1;
+        *array_size = 5;
     }
     size_t new_size = *array_size * 2;
     char **new_args = realloc(*args, new_size * sizeof(char*));
@@ -54,108 +76,208 @@ int resize_args(char ***args, size_t *array_size, size_t count) {
     return 0;
 }
 
+int resize_cmd_arr(Command **cmd, size_t *cmd_array_size, size_t count) {
+    if (*cmd_array_size == 0) {
+        *cmd_array_size = 4;
+    }
+    size_t new_size = *cmd_array_size * 2;
+    Command *new_commands = realloc(*cmd, new_size * sizeof(Command));
+    if (new_commands == NULL) {
+        for (size_t i = 0; i < count; i++) {
+            for (size_t j = 0; j < (*cmd)[i].token_count; j++) {
+                free((*cmd)[i].tokens[j]);
+            }
+            free((*cmd)[i].tokens);
+        }
+        free(*cmd);
+        *cmd = NULL;
+        return -1;
+    }
+    *cmd = new_commands;
+    *cmd_array_size = new_size;
+    return 0;
+}
+
+char **tokenize_command(char *cmd_str, size_t *token_count, size_t *token_array_size) {
+    if (*token_array_size == 0) {
+        *token_array_size = 5;
+    }
+    char **tokens = malloc(*token_array_size * sizeof(char *));
+    if (tokens == NULL) {
+        write(STDERR_FILENO, error_message, strlen(error_message));
+        return NULL;
+    }
+    char *p = cmd_str;
+    *token_count = 0;
+    while (*p != '\0') {
+        while (isspace(*p)) {
+            p++;
+        }
+        if (*p == '\0') {
+            break;
+        }
+        char *start = p;
+        size_t token_len = 0;
+
+        if (*p == '>') {
+            token_len = 1;
+            p++;
+        } else {
+            while (*p != '\0' && !isspace(*p) && *p != '>') {
+                p++;
+                token_len++;
+            }
+        }
+        if (token_len > 0) {
+            if (*token_count >= *token_array_size) {
+                if (resize_args(&tokens, token_array_size, *token_count) != 0) {
+                    for (size_t i = 0; i < *token_count; i++) {
+                        free(tokens[i]);
+                    }
+                    free(tokens);
+                    write(STDERR_FILENO, error_message, strlen(error_message));
+                    return NULL;
+                }
+            }
+            tokens[*token_count] = strndup(start, token_len);
+            if (tokens[*token_count] == NULL) {
+                for (size_t i = 0; i < *token_count; i++) {
+                    free(tokens[i]);
+                }
+                free(tokens);
+                write(STDERR_FILENO, error_message, strlen(error_message));
+                return NULL;
+            }
+            (*token_count)++;
+        }
+        if (*p == '>') {
+            if (*token_count >= *token_array_size) {
+                if (resize_args(&tokens, token_array_size, *token_count) != 0) {
+                    for (size_t i = 0; i < *token_count; i++) {
+                        free(tokens[i]);
+                    }
+                    free(tokens);
+                    write(STDERR_FILENO, error_message, strlen(error_message));
+                    return NULL;
+                }
+            }
+            tokens[*token_count] = strdup(">");
+            if (tokens[*token_count] == NULL) {
+                for (size_t i = 0; i < *token_count; i++) {
+                    free(tokens[i]);
+                }
+                free(tokens);
+                write(STDERR_FILENO, error_message, strlen(error_message));
+                return NULL;
+            }
+            (*token_count)++;
+            p++;
+        }
+    }
+    if (*token_count >= *token_array_size) {
+        if (resize_args(&tokens, token_array_size, *token_count) != 0) {
+            for (size_t i = 0; i < *token_count; i++) {
+                free(tokens[i]);
+            }
+            free(tokens);
+            write(STDERR_FILENO, error_message, strlen(error_message));
+            return NULL;
+        }
+    }
+    tokens[*token_count] = NULL;
+    return tokens;
+}
+
 // Populate array with tokens derived from separating user-
 // input by spaces or redirection indicator (>) as the delimiter
-char **tokenize_input(char *lineptr, size_t *count, size_t *array_size) {
-    if (*array_size == 0) {
-        *array_size = 5;
+Command *tokenize_input(char *lineptr, size_t *num_commands, size_t *cmd_array_size, char **shell_path) {
+    if (*cmd_array_size == 0) {
+        *cmd_array_size = 4;
     }
-    char **args = malloc(*array_size * sizeof(char*));
-    if (args == NULL) {
+    Command *commands = malloc(*cmd_array_size * sizeof(Command));
+    if (commands == NULL) {
         write(STDERR_FILENO, error_message, strlen(error_message));
         return NULL;
     }
     char *p = lineptr;
     char *start = NULL;
     int token_len = 0;
-    *count = 0;
+    *num_commands = 0;
     while (*p != '\0') {
         while (isspace(*p)) p++;
         if (*p == '\0') break;
         start = p;
-        token_len = 0;
-        while (*p != '\0' && !isspace(*p) && *p != '>') {
-            p++;
-            token_len++;
-        }
-        if (token_len > 0) {
-            if (*count == *array_size) {
-                if (resize_args(&args, array_size, *count) != 0) {
-                    return NULL;
-                }
+        while (*p != '\0' && *p != '&') p++;
+        if (p > start) {
+            char *end = p;
+            while (end > start && isspace(*(end - 1))) end--;
+            if (end == start) {
+                if (*p == '&') p++;
+                continue;
             }
-            args[*count] = strndup(start, token_len);
-            if (args[*count] == NULL) {
-                for (size_t i = 0; i < *count; i++) {
-                    free(args[i]);
-                }
-                free(args);
+            char *cmd_str = strndup(start, end - start);
+            if (cmd_str == NULL) {
+                cleanup_loop(&lineptr, &commands, *num_commands);
                 write(STDERR_FILENO, error_message, strlen(error_message));
                 return NULL;
             }
-            (*count)++;
-        }
-        if (*p == '>') {
-            if (*count == *array_size) {
-                if (resize_args(&args, array_size, *count) != 0) {
-                    return NULL;
-                }
-            }
-            args[*count] = strdup(">");
-            if (args[*count] == NULL) {
-                for (size_t i = 0; i < *count; i++) {
-                    free(args[i]);
-                }
-                free(args);
+            size_t token_count = 0;
+            size_t token_array_size = 0;
+            char **tokens = tokenize_command(cmd_str, &token_count, &token_array_size);
+            if (tokens == NULL) {
+                cleanup_loop(&lineptr, &commands, *num_commands);
                 write(STDERR_FILENO, error_message, strlen(error_message));
                 return NULL;
             }
-            (*count)++;
-            p++;
+            if (token_count == 0) {
+                free(cmd_str);
+                for (size_t i = 0; i < token_count; i++) {
+                    free(tokens[i]);
+                }
+                free(tokens);
+                if (*p == '&') p++;
+                continue;
+            }
+            if (*num_commands == *cmd_array_size) {
+                if (resize_cmd_arr(&commands, cmd_array_size, *num_commands) != 0) {
+                    cleanup_loop(&lineptr, &commands, *num_commands);
+                    write(STDERR_FILENO, error_message, strlen(error_message));
+                    return NULL;
+                }
+            }
+            commands[*num_commands].tokens = tokens;
+            commands[*num_commands].token_count = token_count;
+            (*num_commands)++;
+            free(cmd_str);
         }
+        if (*p == '&') p++;
     }
-    if (*count >= *array_size) {
-        if (resize_args(&args, array_size, *count) != 0) {
+    if (*num_commands < *cmd_array_size) {
+        commands[*num_commands].tokens = NULL;
+        commands[*num_commands].token_count = 0;
+    } else {
+        if (resize_cmd_arr(&commands, cmd_array_size, *num_commands) != 0) {
+            cleanup_loop(&lineptr, &commands, *num_commands);
+            write(STDERR_FILENO, error_message, strlen(error_message));
             return NULL;
         }
+        commands[*num_commands].tokens = NULL;
+        commands[*num_commands].token_count = 0;
     }
-    args[*count] = NULL;
-    return args;
-}
-
-// Free memory
-void cleanup(char **lineptr, char ***args, size_t count, char **path_copy) {
-    free(*lineptr);
-    *lineptr = NULL;
-    if (*args != NULL) {
-        for (size_t i = 0; i < count; i++) {
-            free((*args)[i]);
-            (*args)[i] = NULL;
-        }
-        free(*args);
-        *args = NULL;
-    }
-    free(*path_copy);
-    *path_copy = NULL;
+    return commands;
 }
 
 // Parse command and execute
-bool execute_command(char **args, size_t count, char **shell_path, FILE *file_ptr) {
+pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_ptr) {
     if (count == 0) {   // If user presses enter without typing anything
-        return false;
+        return -1;
     }
     if (strcmp(args[0], "exit") == 0) { // Check for builtins commands
         if (count != 1) {
             write(STDERR_FILENO, error_message, strlen(error_message));
-            return false;
+            return -1;
         }
-        free(*shell_path);
-        *shell_path = NULL;
-        if (file_ptr != stdin) {
-            fclose(file_ptr);
-            file_ptr = NULL;
-        }
-        return true;
+        return -2;
     }
     if (strcmp(args[0], "cd") == 0) {
         if (count != 2) { // cd takes only one argument for now
@@ -166,15 +288,16 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
                 write(STDERR_FILENO, error_message, strlen(error_message));
             }
         }
-        return false;
+        return -1;
     }
     if (strcmp(args[0], "path") == 0) {   // User wants to change shell path
         free(*shell_path); // free initial path
+        *shell_path = NULL;
         if (count == 1) {
             *shell_path = strdup("");
             if (*shell_path == NULL) {
                 write(STDERR_FILENO, error_message, strlen(error_message));
-                exit(1);
+                return -1;
             }
         }  else {
             size_t path_size = count - 1; // Initialize as count - 2 + 1 for colons and null terminator (equivalent used)
@@ -184,7 +307,7 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
             char *new_path = malloc(path_size);
             if (new_path == NULL) {
                 write(STDERR_FILENO, error_message, strlen(error_message));
-                exit(1);
+                return -1;
             }
             char *path_ptr = new_path;
             for (int i = 1; i < count; i++) {
@@ -198,7 +321,7 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
             *path_ptr = '\0';
             *shell_path = new_path;
         }
-        return false;
+        return -1;
     }
     // Check for redirection
     int redir_index = -1;
@@ -207,7 +330,7 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
         if (strcmp(args[i], ">") == 0) {
             if (redir_index != -1) {
                 write(STDERR_FILENO, error_message, strlen(error_message));
-                return false;
+                return -1;
             }
             redir_index = i;
         }
@@ -216,9 +339,14 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
     char *cmd_args[ch_count + 1];
     char *file = NULL;
     if (redir_index != -1) {
-        if (redir_index == ch_count - 1 || args[redir_index + 1] == NULL || args[redir_index + 2] != NULL) {
+        if (
+            redir_index == ch_count - 1
+            || args[redir_index + 1] == NULL
+            || args[redir_index + 2] != NULL
+            || strlen(args[redir_index + 1]) == 0
+        ) {
             write(STDERR_FILENO, error_message, strlen(error_message));
-            return false;
+            return -1;
         }
         for (int i = 0; i < redir_index; i++) {
             cmd_args[i] = args[i];
@@ -234,14 +362,15 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
 
     if (!*shell_path || **shell_path == '\0') {
         write(STDERR_FILENO, error_message, strlen(error_message));
-        return false;
+        return -1;
     }
 
     // Split path string copy by colons
+    char *path_copy = NULL;
     path_copy = strdup(*shell_path);
     if (path_copy == NULL) {
         write(STDERR_FILENO, error_message, strlen(error_message));
-        return false;
+        return -1;
     }
     bool path_found = false;
     char *dir = strtok(path_copy, PATH_DELIM);
@@ -253,7 +382,10 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
             // Fork process
             pid_t cpid = fork();
             if (cpid < 0) {
+                free(path_copy);
+                path_copy = NULL;
                 write(STDERR_FILENO, error_message, strlen(error_message));
+                return -1;
             } else if (cpid == 0 ) {     // Child process 
                 if (file != NULL) {
                     int fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -270,9 +402,10 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
                     exit(1);
                 }
             } else {      // Parent process
-                waitpid(cpid, NULL, 0);
                 path_found = true;
-                break;
+                free(path_copy);
+                path_copy = NULL;
+                return cpid;
             }
         }
         dir = strtok(NULL, PATH_DELIM);
@@ -282,7 +415,7 @@ bool execute_command(char **args, size_t count, char **shell_path, FILE *file_pt
     if (!path_found) {
         write(STDERR_FILENO, error_message, strlen(error_message));
     }
-    return false;
+    return -1;
 }
 
 
@@ -295,6 +428,7 @@ int main(int argc, char *argv[]) {
     // Too many arguments
     if (argc > 2) {
         write(STDERR_FILENO, error_message, strlen(error_message));
+        free(shell_path);
         exit(1);
     }
     // Batch mode
@@ -309,22 +443,23 @@ int main(int argc, char *argv[]) {
         file_ptr = stdin;
     }
 
-    char **args = NULL;
-    size_t count = 0;
-    size_t array_size = 0;
+    Command *commands = NULL;
+    size_t num_commands = 0;
+    size_t cmd_array_size = 0;
     // Main loop
     while (true) {
         // Read user input
         ssize_t num_read = read_line(file_ptr, &lineptr, &size);
         if (num_read == -1) {
             if (feof(file_ptr)) {
-                cleanup(&lineptr, &args, count, &path_copy);
-                free(shell_path);
+                cleanup(&lineptr, &commands, num_commands, &shell_path);
                 if (file_ptr != stdin) {
                     fclose(file_ptr);
+                    file_ptr = NULL;
                 }
                 exit(0);
             } else {
+                free(shell_path);
                 write(STDERR_FILENO, error_message, strlen(error_message));
                 exit(1);
             }
@@ -336,18 +471,39 @@ int main(int argc, char *argv[]) {
                 lineptr[--num_read] = '\0';
             }
         }
-        count = 0;
-        array_size = 5;
-        args = tokenize_input(lineptr, &count, &array_size);
-        if (args == NULL) {
-            cleanup(&lineptr, &args, count, &path_copy);
+        num_commands = 0;
+        cmd_array_size = 0;
+        commands = tokenize_input(lineptr, &num_commands, &cmd_array_size, &shell_path);
+        if (commands == NULL || num_commands == 0) {
+            cleanup_loop(&lineptr, &commands, num_commands);
             continue;
         }
-        if (execute_command(args, count, &shell_path, file_ptr)) {
-            cleanup(&lineptr, &args, count, &path_copy);
-            exit(0);
+        pid_t *pids = malloc(num_commands * sizeof(pid_t));
+        size_t pid_count = 0;
+        if (pids == NULL) {
+            write(STDERR_FILENO, error_message, strlen(error_message));
+            cleanup_loop(&lineptr, &commands, num_commands);
+            continue;
         }
-        cleanup(&lineptr, &args, count, &path_copy);
+        for (size_t i = 0; i < num_commands; i++) {
+            pid_t pid = execute_command(commands[i].tokens, commands[i].token_count, &shell_path, file_ptr);
+            if (pid == -2) {
+                cleanup(&lineptr, &commands, num_commands, &shell_path);
+                free(pids);
+                if (file_ptr != stdin) {
+                    fclose(file_ptr);
+                    file_ptr = NULL;
+                }
+                exit(0);
+            } else if (pid >= 0) {
+                pids[pid_count++] = pid;
+            }
+        }
+        for (size_t i = 0; i < pid_count; i++) {
+            waitpid(pids[i], NULL, 0);
+        }
+        free(pids);
+        cleanup_loop(&lineptr, &commands, num_commands);
     }
     return 0;
 }
