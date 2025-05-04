@@ -394,7 +394,6 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
                         fprintf(stderr, "failed to open file\n");
                         exit(1);
                     }
-                    free(shell_path);
                     // Close stdout (1) and print output to fd (file)
                     dup2(fd, 1);
                     close(fd);
