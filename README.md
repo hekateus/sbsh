@@ -2,7 +2,7 @@
 
 Only runs on linux for now.
 
-To compile: gcc -Wall main.c helpers.c text_colors.c -o ./sbsh
+To compile: gcc main.c helpers.c text_colors.c -o ./sbsh
 
 Work in progress.
 
