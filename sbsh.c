@@ -11,8 +11,6 @@
 #include <stdbool.h>
 #include <sys/wait.h>
 
-const char error_message[30] = "An error has occurred\n";
-
 // Struct for storing commands
 typedef struct {
     char **tokens;
@@ -103,7 +101,7 @@ char **tokenize_command(char *cmd_str, size_t *token_count, size_t *token_array_
     }
     char **tokens = malloc(*token_array_size * sizeof(char *));
     if (tokens == NULL) {
-        fprintf(stderr, "malloc failed");
+        fprintf(stderr, "malloc failed\n");
         return NULL;
     }
     char *p = cmd_str;
@@ -134,7 +132,7 @@ char **tokenize_command(char *cmd_str, size_t *token_count, size_t *token_array_
                         free(tokens[i]);
                     }
                     free(tokens);
-                    fprintf(stderr, "realloc failed");
+                    fprintf(stderr, "realloc failed\n");
                     return NULL;
                 }
             }
@@ -144,7 +142,7 @@ char **tokenize_command(char *cmd_str, size_t *token_count, size_t *token_array_
                     free(tokens[i]);
                 }
                 free(tokens);
-                fprintf(stderr, "strndup failed");
+                fprintf(stderr, "strndup failed\n");
                 return NULL;
             }
             (*token_count)++;
@@ -156,7 +154,7 @@ char **tokenize_command(char *cmd_str, size_t *token_count, size_t *token_array_
                         free(tokens[i]);
                     }
                     free(tokens);
-                    fprintf(stderr, "realloc failed");
+                    fprintf(stderr, "realloc failed\n");
                     return NULL;
                 }
             }
@@ -166,7 +164,7 @@ char **tokenize_command(char *cmd_str, size_t *token_count, size_t *token_array_
                     free(tokens[i]);
                 }
                 free(tokens);
-                fprintf(stderr, "strdup failed");
+                fprintf(stderr, "strdup failed\n");
                 return NULL;
             }
             (*token_count)++;
@@ -179,7 +177,7 @@ char **tokenize_command(char *cmd_str, size_t *token_count, size_t *token_array_
                 free(tokens[i]);
             }
             free(tokens);
-            fprintf(stderr, "realloc failed");
+            fprintf(stderr, "realloc failed\n");
             return NULL;
         }
     }
@@ -194,7 +192,7 @@ Command *tokenize_input(char *lineptr, size_t *num_commands, size_t *cmd_array_s
     }
     Command *commands = malloc(*cmd_array_size * sizeof(Command));
     if (commands == NULL) {
-        fprintf(stderr, "malloc failed");
+        fprintf(stderr, "malloc failed\n");
         return NULL;
     }
     char *p = lineptr;
@@ -222,7 +220,7 @@ Command *tokenize_input(char *lineptr, size_t *num_commands, size_t *cmd_array_s
             char *cmd_str = strndup(start, end - start);
             if (cmd_str == NULL) {
                 cleanup_loop(&lineptr, &commands, *num_commands);
-                fprintf(stderr, "strndup failed");
+                fprintf(stderr, "strndup failed\n");
                 return NULL;
             }
             size_t token_count = 0;
@@ -244,7 +242,7 @@ Command *tokenize_input(char *lineptr, size_t *num_commands, size_t *cmd_array_s
             if (*num_commands == *cmd_array_size) {
                 if (resize_cmd_arr(&commands, cmd_array_size, *num_commands) != 0) {
                     cleanup_loop(&lineptr, &commands, *num_commands);
-                    fprintf(stderr, "realloc failed");
+                    fprintf(stderr, "realloc failed\n");
                     return NULL;
                 }
             }
@@ -261,7 +259,7 @@ Command *tokenize_input(char *lineptr, size_t *num_commands, size_t *cmd_array_s
     } else {
         if (resize_cmd_arr(&commands, cmd_array_size, *num_commands) != 0) {
             cleanup_loop(&lineptr, &commands, *num_commands);
-            fprintf(stderr, "realloc failed");
+            fprintf(stderr, "realloc failed\n");
             return NULL;
         }
         commands[*num_commands].tokens = NULL;
@@ -278,18 +276,18 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
     }
     if (strcmp(args[0], "exit") == 0) { // Check for builtins commands
         if (count != 1) {
-            fprintf(stderr, "bad exit command");
+            fprintf(stderr, "bad exit command\n");
             return -1;
         }
         return -2;
     }
     if (strcmp(args[0], "cd") == 0) {
         if (count != 2) { // cd takes only one argument for now
-            fprintf(stderr,  "specify a directory for cd");
+            fprintf(stderr,  "specify a directory for cd\n");
         } else {
             const char *dir = args[1];
             if (dir == NULL || chdir(dir) < 0) {
-                fprintf(stderr, "directory does not exist");
+                fprintf(stderr, "directory does not exist\n");
             }
         }
         return -1;
@@ -300,7 +298,7 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
         if (count == 1) {
             *shell_path = strdup("");
             if (*shell_path == NULL) {
-                fprintf(stderr, "strdup failed");
+                fprintf(stderr, "strdup failed\n");
                 return -1;
             }
         }  else {
@@ -310,7 +308,7 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
             }
             char *new_path = malloc(path_size);
             if (new_path == NULL) {
-                fprintf(stderr, "malloc failed");
+                fprintf(stderr, "malloc failed\n");
                 return -1;
             }
             char *path_ptr = new_path;
@@ -333,7 +331,7 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
     for (int i = 0; args[i] != NULL; i++) {
         if (strcmp(args[i], ">") == 0) {
             if (redir_index != -1) {
-                fprintf(stderr, "redirection failed");
+                fprintf(stderr, "redirection failed\n");
                 return -1;
             }
             redir_index = i;
@@ -349,7 +347,7 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
             || args[redir_index + 2] != NULL
             || strlen(args[redir_index + 1]) == 0
         ) {
-            fprintf(stderr, "bad redirection");
+            fprintf(stderr, "bad redirection\n");
             return -1;
         }
         for (int i = 0; i < redir_index; i++) {
@@ -365,14 +363,14 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
         cmd_args[ch_count] = NULL;
     }
     if (!*shell_path || **shell_path == '\0') {
-        fprintf(stderr, "bad path");
+        fprintf(stderr, "bad path\n");
         return -1;
     }
     // Split path string copy by colons
     char *path_copy = NULL;
     path_copy = strdup(*shell_path);
     if (path_copy == NULL) {
-        fprintf(stderr, "strdup failed");
+        fprintf(stderr, "strdup failed\n");
         return -1;
     }
     bool path_found = false;
@@ -387,13 +385,13 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
             if (cpid < 0) {
                 free(path_copy);
                 path_copy = NULL;
-                fprintf(stderr, "fork failed");
+                fprintf(stderr, "fork failed\n");
                 return -1;
             } else if (cpid == 0 ) {     // Child process 
                 if (file != NULL) {
                     int fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
                     if (fd < 0) {
-                        fprintf(stderr, "failed to open file");
+                        fprintf(stderr, "failed to open file\n");
                         exit(1);
                     }
                     free(shell_path);
@@ -402,7 +400,7 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
                     close(fd);
                 }
                 if (execv(full_path, cmd_args) < 0) {
-                    fprintf(stderr, "execv failed");
+                    fprintf(stderr, "execv failed\n");
                     exit(1);
                 }
             } else {      // Parent process
@@ -417,7 +415,7 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
     free(path_copy);
     path_copy = NULL;
     if (!path_found) {
-        fprintf(stderr, "path not found");
+        fprintf(stderr, "path not found\n");
     }
     return -1;
 }
@@ -429,12 +427,12 @@ int main(int argc, char *argv[]) {
 
     char *shell_path = strdup("/bin");
     if (shell_path == NULL) {
-        fprintf(stderr, "strdup failed");
+        fprintf(stderr, "strdup failed\n");
         exit(1);
     }
     // Too many arguments
     if (argc > 2) {
-        fprintf(stderr, "only accepts 0 or 1 arguments");
+        fprintf(stderr, "only accepts 0 or 1 arguments\n");
         free(shell_path);
         exit(1);
     }
@@ -443,7 +441,7 @@ int main(int argc, char *argv[]) {
         file_ptr = fopen(argv[1], "r");
         if (file_ptr == NULL) {
             free(shell_path);
-            fprintf(stderr, "fopen failed");
+            fprintf(stderr, "fopen failed\n");
             exit(1);
         }
     } else {
@@ -466,7 +464,7 @@ int main(int argc, char *argv[]) {
                 exit(0);
             } else {
                 free(shell_path);
-                fprintf(stderr, "read_line failed");
+                fprintf(stderr, "read_line failed\n");
                 exit(1);
             }
         }
@@ -487,7 +485,7 @@ int main(int argc, char *argv[]) {
         pid_t *pids = malloc(num_commands * sizeof(pid_t));
         size_t pid_count = 0;
         if (pids == NULL) {
-            fprintf(stderr, "malloc failed");
+            fprintf(stderr, "malloc failed\n");
             cleanup_loop(&lineptr, &commands, num_commands);
             continue;
         }
