@@ -1,21 +1,14 @@
-// A simple shell
-#include <ctype.h>
-#include <fcntl.h>
-#include <linux/limits.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <stdbool.h>
-#include <sys/wait.h>
+#include "helpers.h"
+#include "text_colors.h"
 
-// Struct for storing commands
-typedef struct {
-    char **tokens;
-    size_t token_count;
-} Command;
+
+// Interactive mode prompt
+// TODO: add a little bit of customization
+void prompt() {
+    cyan_txt();
+    printf("sbsh::$ ");
+    reset_txt();
+}
 
 // Frees memory for main loop (excluding shell_path)
 void cleanup_loop(char **lineptr, Command **commands, size_t num_commands) {
@@ -43,8 +36,7 @@ void cleanup(char **lineptr, Command **commands, size_t num_commands, char **she
 // Gets user input
 ssize_t read_line(FILE *file_ptr, char **lineptr, size_t *size) {
     if (file_ptr == stdin) {
-        // Interactive mode prompt
-        printf("sbsh> ");
+        prompt();
     }
     return getline(lineptr, size, file_ptr);
 }
@@ -197,7 +189,6 @@ Command *tokenize_input(char *lineptr, size_t *num_commands, size_t *cmd_array_s
     }
     char *p = lineptr;
     char *start = NULL;
-    int token_len = 0;
     *num_commands = 0;
     while (*p != '\0') {
         while (isspace(*p)) {
@@ -212,7 +203,9 @@ Command *tokenize_input(char *lineptr, size_t *num_commands, size_t *cmd_array_s
         }
         if (p > start) {
             char *end = p;
-            while (end > start && isspace(*(end - 1))) end--;
+            while (end > start && isspace(*(end - 1))) {
+                end--;
+            }
             if (end == start) {
                 if (*p == '&') p++;
                 continue;
@@ -270,7 +263,6 @@ Command *tokenize_input(char *lineptr, size_t *num_commands, size_t *cmd_array_s
 
 // Parse command and execute
 pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_ptr) {
-    const char *PATH_DELIM = ":";
     if (count == 0) {   // If user presses enter without typing anything
         return -1;
     }
@@ -374,7 +366,7 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
         return -1;
     }
     bool path_found = false;
-    char *dir = strtok(path_copy, PATH_DELIM);
+    char *dir = strtok(path_copy, ":");
     while (dir != NULL) {
         char full_path[PATH_MAX];
         snprintf(full_path, sizeof(full_path), "%s/%s", dir, args[0]);
@@ -387,7 +379,7 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
                 path_copy = NULL;
                 fprintf(stderr, "fork failed\n");
                 return -1;
-            } else if (cpid == 0 ) {     // Child process 
+            } else if (cpid == 0 ) {     // Execute command in child process 
                 if (file != NULL) {
                     int fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
                     if (fd < 0) {
@@ -409,104 +401,12 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
                 return cpid;
             }
         }
-        dir = strtok(NULL, PATH_DELIM);
+        dir = strtok(NULL, ":");
     }
     free(path_copy);
     path_copy = NULL;
     if (!path_found) {
-        fprintf(stderr, "path not found\n");
+        fprintf(stderr, "command does not exist\n");
     }
     return -1;
-}
-
-int main(int argc, char *argv[]) {
-    char *lineptr = NULL;
-    size_t size = 0;
-    FILE *file_ptr;
-
-    char *shell_path = strdup("/bin");
-    if (shell_path == NULL) {
-        fprintf(stderr, "strdup failed\n");
-        exit(1);
-    }
-    // Too many arguments
-    if (argc > 2) {
-        fprintf(stderr, "only accepts 0 or 1 arguments\n");
-        free(shell_path);
-        exit(1);
-    }
-    // Batch mode
-    if (argc == 2) {
-        file_ptr = fopen(argv[1], "r");
-        if (file_ptr == NULL) {
-            free(shell_path);
-            fprintf(stderr, "fopen failed\n");
-            exit(1);
-        }
-    } else {
-        file_ptr = stdin;
-    }
-    Command *commands = NULL;
-    size_t num_commands = 0;
-    size_t cmd_array_size = 0;
-    // Main loop
-    while (true) {
-        // Read user input
-        ssize_t num_read = read_line(file_ptr, &lineptr, &size);
-        if (num_read == -1) {
-            if (feof(file_ptr)) {
-                cleanup(&lineptr, &commands, num_commands, &shell_path);
-                if (file_ptr != stdin) {
-                    fclose(file_ptr);
-                    file_ptr = NULL;
-                }
-                exit(0);
-            } else {
-                free(shell_path);
-                fprintf(stderr, "read_line failed\n");
-                exit(1);
-            }
-        }
-        // Check for new line char
-        // Strip newlines
-        if (num_read > 0) {
-            while (num_read > 0 && (lineptr[num_read - 1] == '\n' || lineptr[num_read - 1] == '\r')) {
-                lineptr[--num_read] = '\0';
-            }
-        }
-        num_commands = 0;
-        cmd_array_size = 0;
-        commands = tokenize_input(lineptr, &num_commands, &cmd_array_size, &shell_path);
-        if (commands == NULL || num_commands == 0) {
-            cleanup_loop(&lineptr, &commands, num_commands);
-            continue;
-        }
-        pid_t *pids = malloc(num_commands * sizeof(pid_t));
-        size_t pid_count = 0;
-        if (pids == NULL) {
-            fprintf(stderr, "malloc failed\n");
-            cleanup_loop(&lineptr, &commands, num_commands);
-            continue;
-        }
-        for (size_t i = 0; i < num_commands; i++) {
-            pid_t pid = execute_command(commands[i].tokens, commands[i].token_count, &shell_path, file_ptr);
-            if (pid == -2) {
-                cleanup(&lineptr, &commands, num_commands, &shell_path);
-                free(pids);
-                if (file_ptr != stdin) {
-                    fclose(file_ptr);
-                    file_ptr = NULL;
-                }
-                exit(0);
-            } else if (pid >= 0) {
-                pids[pid_count++] = pid;
-            }
-        }
-        for (size_t i = 0; i < pid_count; i++) {
-            waitpid(pids[i], NULL, 0);
-        }
-        free(pids);
-        cleanup_loop(&lineptr, &commands, num_commands);
-    }
-    return 0;
 }
