@@ -1,6 +1,6 @@
 ## Super basic shell
 
-Only runs on linux for now.
+Only tested on linux for now.
 
 To compile: gcc main.c helpers.c text_colors.c -o ./sbsh
 
