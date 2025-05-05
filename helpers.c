@@ -1,7 +1,6 @@
 #include "helpers.h"
 #include "text_colors.h"
 
-
 // Interactive mode prompt
 // TODO: add a little bit of customization
 void prompt() {
@@ -266,7 +265,7 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
     if (count == 0) {   // If user presses enter without typing anything
         return -1;
     }
-    if (strcmp(args[0], "exit") == 0) { // Check for builtins commands
+    if (strcmp(args[0], "exit") == 0) { // Check for builtin commands
         if (count != 1) {
             fprintf(stderr, "bad exit command\n");
             return -1;
@@ -387,6 +386,7 @@ pid_t execute_command(char **args, size_t count, char **shell_path, FILE *file_p
                         exit(1);
                     }
                     // Close stdout (1) and print output to fd (file)
+                    // then close fd
                     dup2(fd, 1);
                     close(fd);
                 }

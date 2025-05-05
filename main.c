@@ -6,7 +6,7 @@ int main(int argc, char *argv[]) {
     size_t size = 0;
     FILE *file_ptr;
     // Path to search for external commands
-    char *shell_path = strdup("/bin");
+    char *shell_path = strdup("/bin"); // strdup allocates memory that must be freed
     if (shell_path == NULL) {
         fprintf(stderr, "strdup failed\n");
         exit(1);
@@ -14,7 +14,7 @@ int main(int argc, char *argv[]) {
     // Too many arguments
     if (argc > 2) {
         fprintf(stderr, "only accepts 0 or 1 arguments\n");
-        free(shell_path);
+        free(shell_path); 
         exit(1);
     }
     // Batch mode
