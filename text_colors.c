@@ -1,4 +1,4 @@
-#include <stdio.h>
+#include "text_colors.h"
 
 // text color functions
 void black_txt() {

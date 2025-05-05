@@ -1,6 +1,8 @@
 #ifndef TEXT_COLORS_H
 #define TEXT_COLORS_H
 
+#include <stdio.h>
+
 // text color functions
 void black_txt(); 
 void black_b_txt();
